@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lector de Código de Barras</title>
+    <!-- Importa la biblioteca QuaggaJS desde un CDN -->
+    <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
+    <style>
+        
+        #interactive {
+            width: 100%;
+            height: 300px;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 1.5em;
+        }
+        #error {
+            color: red;
+            margin-top: 20px;
+            font-size: 1em;
+        }
+        ul {
+            margin-top: 20px;
+            list-style-type: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Contenedor para el video de la cámara -->
+    <div id="interactive" class="viewport"></div>
+    <!-- Mostrar el resultado del código escaneado -->
+    <div id="result"></div>
+    <!-- Mostrar errores si ocurren -->
+    <div id="error"></div>
+    <!-- Lista para mostrar los códigos escaneados -->
+    <ul id="scanned-codes"></ul>
+    <!-- Elemento de audio para el sonido de "BEEP" -->
+    <audio id="beep" src="beep.mp3"></audio>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set para almacenar códigos únicos escaneados
+            const scannedCodesSet = new Set();
+            // Obtener el elemento de audio para reproducir el sonido
+            const beepSound = document.getElementById('beep');
+            // Obtener el elemento UL donde se mostrarán los códigos escaneados
+            const scannedCodesList = document.getElementById('scanned-codes');
+            // Variables para almacenar el último código escaneado y el tiempo de escaneo
+            let lastScannedCode = null;
+            let lastScannedTime = 0;
+
+            // Función para agregar un código escaneado a la lista y reproducir un sonido
+            function addScannedCode(code) {
+                if (!scannedCodesSet.has(code)) {
+                    // Agregar el código al Set
+                    scannedCodesSet.add(code);
+                    // Crear un nuevo elemento LI para la lista
+                    const li = document.createElement('li');
+                    li.innerText = code;
+                    // Agregar el nuevo código a la lista UL
+                    scannedCodesList.appendChild(li);
+                    // Reproducir el sonido de "BEEP"
+                    beepSound.play();
+                }
+            }
+
+            // Verificar si el navegador soporta getUserMedia
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: document.querySelector('#interactive'), // Elemento donde se mostrará el video
+                        constraints: {
+                            width: 640,
+                            height: 480,
+                            facingMode: "environment" // Intentar usar la cámara trasera si está disponible
+                        }
+                    },
+                    decoder: {
+                        readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "code_39_vin_reader", "codabar_reader", "upc_reader", "upc_e_reader", "i2of5_reader"],
+                        debug: {
+                            drawBoundingBox: true,
+                            showFrequency: true,
+                            drawScanline: true,
+                            showPattern: true
+                        },
+                        multiple: false
+                    },
+                    locator: {
+                        patchSize: "medium", // Opciones: small, medium, large
+                        halfSample: true
+                    },
+                    numOfWorkers: navigator.hardwareConcurrency || 4,
+                    locate: true,
+                    frequency: 10,
+                    singleChannel: false
+                }, function (err) {
+                    if (err) {
+                        console.log(err);
+                        document.getElementById('error').innerText = `Error inicializando Quagga: ${err.message}`;
+                        return;
+                    }
+                    console.log("Initialization finished. Ready to start");
+                    Quagga.start();
+                });
+
+                // Evento que se dispara cuando Quagga detecta un código
+                Quagga.onDetected(function (result) {
+                    const code = result.codeResult.code;
+                    const currentTime = Date.now();
+
+                    // Verificar si el código es diferente al último escaneado o si ha pasado suficiente tiempo (2 segundos)
+                    if (code !== lastScannedCode || (currentTime - lastScannedTime) > 2000) {
+                        lastScannedCode = code;
+                        lastScannedTime = currentTime;
+                        console.log(result); // Log para verificar la salida
+                        document.getElementById('result').innerText = `Código detectado: ${code}`;
+                        // Agregar el código a la lista
+                        addScannedCode(code);
+                    }
+                });
+
+                // Evento que se dispara después de que Quagga procesa cada frame
+                Quagga.onProcessed(function (result) {
+                    if (result) {
+                        const drawingCtx = Quagga.canvas.ctx.overlay,
+                              drawingCanvas = Quagga.canvas.dom.overlay;
+
+                        if (result.boxes) {
+                            drawingCtx.clearRect(0, 0, drawingCanvas.getAttribute("width"), drawingCanvas.getAttribute("height"));
+                            result.boxes.filter(box => box !== result.box).forEach(box => {
+                                Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
+                            });
+                        }
+
+                        if (result.box) {
+                            Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "#00F", lineWidth: 2});
+                        }
+
+                        if (result.codeResult && result.codeResult.code) {
+                            Quagga.ImageDebug.drawPath(result.line, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
+                        }
+                    }
+                });
+            } else {
+                document.getElementById('error').innerText = 'getUserMedia no es compatible con este navegador.';
+            }
+        });
+    </script>
+</body>
+</html>
